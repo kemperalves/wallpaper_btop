@@ -48,6 +48,38 @@ MAGENTA = (115, 94, 115)
 
 HISTORY_LEN = 90
 
+STRINGS = {
+    "en": {
+        "weekdays": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+        "cores": "cores",
+        "processes": "processes",
+        "memory": "memory",
+        "free": "free",
+        "disk": "disk",
+        "network": "network",
+        "download": "▼ download",
+        "upload": "▲ upload",
+        "name": "NAME",
+    },
+    "pt-br": {
+        "weekdays": ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"],
+        "cores": "núcleos",
+        "processes": "processos",
+        "memory": "memória",
+        "free": "livre",
+        "disk": "disco",
+        "network": "rede",
+        "download": "▼ recebendo",
+        "upload": "▲ enviando",
+        "name": "NOME",
+    },
+}
+LANG = "en"
+
+
+def t(key):
+    return STRINGS[LANG][key]
+
 
 def load_font(size):
     return ImageFont.truetype(FONT_PATH, size)
@@ -334,13 +366,13 @@ def render(state, stats: Stats) -> Image.Image:
 
     now = datetime.now()
     dr.text_center((content_x0 + content_x1) / 2, v_margin + 14, now.strftime("%H:%M:%S"), FONTS["clock"], TEXT, bold=True)
-    weekday = ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"][now.weekday()]
+    weekday = t("weekdays")[now.weekday()]
     dr.text_center((content_x0 + content_x1) / 2, v_margin + 96, f"{weekday}, {now.strftime('%d/%m/%Y')}", FONTS["small"], TEXT_DIM)
 
     la1, la5, la15 = state["loadavg"]
     dr.text_right(safe_right_x, v_margin + 20, f"uptime {format_uptime(state['uptime'])}", FONTS["normal"], TEXT)
     dr.text_right(safe_right_x, v_margin + 66, f"load {la1:.2f} {la5:.2f} {la15:.2f}", FONTS["small"], TEXT_DIM)
-    dr.text_right(safe_right_x, v_margin + 96, f"{state['proc_count']} processos", FONTS["small"], TEXT_DIM)
+    dr.text_right(safe_right_x, v_margin + 96, f"{state['proc_count']} {t('processes')}", FONTS["small"], TEXT_DIM)
 
     # --- Column layout ---------------------------------------------------
     content_y0 = v_margin + top_h + gap
@@ -355,7 +387,7 @@ def render(state, stats: Stats) -> Image.Image:
     # --- CPU panel (left, top) -------------------------------------------
     cpu_h = int(content_h * 0.42)
     cx0, cy0, cx1, cy1 = dr.panel(content_x0, content_y0, content_x0 + left_w, content_y0 + cpu_h,
-                                    f"cpu — {len(state['cpu_per_core'])} núcleos", CYAN, title_x=safe_left_x)
+                                    f"cpu — {len(state['cpu_per_core'])} {t('cores')}", CYAN, title_x=safe_left_x)
 
     num_x = max(cx0, safe_left_x)
     color = level_color(state["cpu_total"])
@@ -388,11 +420,11 @@ def render(state, stats: Stats) -> Image.Image:
 
     # --- Process panel (left, bottom) ------------------------------------
     proc_y0 = content_y0 + cpu_h + gap
-    px0, py0, px1, py1 = dr.panel(content_x0, proc_y0, content_x0 + left_w, content_y1, "processos", MAGENTA)
+    px0, py0, px1, py1 = dr.panel(content_x0, proc_y0, content_x0 + left_w, content_y1, t("processes"), MAGENTA)
 
     col_pid, col_cpu, col_mem = px1 - 380, px1 - 260, px1 - 130
     dr.text((px0, py0), "PID", FONTS["small"], TEXT_DIM)
-    dr.text((px0 + 90, py0), "NOME", FONTS["small"], TEXT_DIM)
+    dr.text((px0 + 90, py0), t("name"), FONTS["small"], TEXT_DIM)
     dr.text((col_cpu, py0), "CPU%", FONTS["small"], TEXT_DIM)
     dr.text((col_mem, py0), "MEM%", FONTS["small"], TEXT_DIM)
     row_h = 40
@@ -413,7 +445,7 @@ def render(state, stats: Stats) -> Image.Image:
     mem = state["mem"]
     swap = state["swap"]
     mem_h = int(content_h * 0.34)
-    mx0, my0, mx1, my1 = dr.panel(right_x0, content_y0, content_x1, content_y0 + mem_h, "memória", GREEN)
+    mx0, my0, mx1, my1 = dr.panel(right_x0, content_y0, content_x1, content_y0 + mem_h, t("memory"), GREEN)
 
     mem_color = level_color(mem.percent)
     dr.text((mx0, my0), f"{mem.percent:.0f}%", FONTS["big"], mem_color, bold=True)
@@ -425,7 +457,7 @@ def render(state, stats: Stats) -> Image.Image:
         ("wired", getattr(mem, "wired", 0), YELLOW),
         ("active", mem.active, CYAN),
         ("inactive", mem.inactive, BLUE),
-        ("livre", mem.available, GREEN),
+        (t("free"), mem.available, GREEN),
     ]
     ly = bar_y + 56
     row_gap = (my1 - ly) / len(lines)
@@ -442,7 +474,7 @@ def render(state, stats: Stats) -> Image.Image:
     # --- Disk panel (right, middle) ---------------------------------------
     disk_y0 = content_y0 + mem_h + gap
     disk_h = int(content_h * 0.14)
-    dx0, dy0, dx1, dy1 = dr.panel(right_x0, disk_y0, content_x1, disk_y0 + disk_h, "disco", ORANGE)
+    dx0, dy0, dx1, dy1 = dr.panel(right_x0, disk_y0, content_x1, disk_y0 + disk_h, t("disk"), ORANGE)
     disks = state["disks"][:3] or []
     row_gap = (dy1 - dy0) / max(len(disks), 1)
     yy = dy0
@@ -456,12 +488,12 @@ def render(state, stats: Stats) -> Image.Image:
 
     # --- Network panel (right, bottom) ------------------------------------
     net_y0 = disk_y0 + disk_h + gap
-    nx0, ny0, nx1, ny1 = dr.panel(right_x0, net_y0, content_x1, content_y1, "rede", BLUE)
+    nx0, ny0, nx1, ny1 = dr.panel(right_x0, net_y0, content_x1, content_y1, t("network"), BLUE)
 
     half = (nx1 - nx0 - 40) / 2
-    dr.text((nx0, ny0), "▼ recebendo", FONTS["small"], TEXT_DIM)
+    dr.text((nx0, ny0), t("download"), FONTS["small"], TEXT_DIM)
     dr.text((nx0, ny0 + 30), human_rate(state["rx_rate"]), FONTS["big"], CYAN, bold=True)
-    dr.text((nx0 + half + 40, ny0), "▲ enviando", FONTS["small"], TEXT_DIM)
+    dr.text((nx0 + half + 40, ny0), t("upload"), FONTS["small"], TEXT_DIM)
     dr.text((nx0 + half + 40, ny0 + 30), human_rate(state["tx_rate"]), FONTS["big"], MAGENTA, bold=True)
 
     spark_y = ny0 + 106
@@ -503,7 +535,7 @@ def render_portrait(state, stats: Stats) -> Image.Image:
     now = datetime.now()
     dr.text_center(cx, y, now.strftime("%H:%M:%S"), FONTS["clock"], TEXT, bold=True)
     y += 108
-    weekday = ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"][now.weekday()]
+    weekday = t("weekdays")[now.weekday()]
     dr.text_center(cx, y, f"{weekday}, {now.strftime('%d/%m/%Y')}", FONTS["small"], TEXT_DIM)
     y += 34
 
@@ -528,7 +560,7 @@ def render_portrait(state, stats: Stats) -> Image.Image:
     # --- CPU ------------------------------------------------------------
     cpu_y0 = content_y0
     cx0, cy0, cx1, cy1 = dr.panel(content_x0, cpu_y0, content_x1, cpu_y0 + cpu_h,
-                                    f"cpu — {len(state['cpu_per_core'])} núcleos", CYAN)
+                                    f"cpu — {len(state['cpu_per_core'])} {t("cores")}", CYAN)
     color = level_color(state["cpu_total"])
     dr.text((cx0, cy0), f"{state['cpu_total']:.0f}%", FONTS["clock"], color, bold=True)
     dr.text((cx0, cy0 + 92), "total", FONTS["small"], TEXT_DIM)
@@ -556,7 +588,7 @@ def render_portrait(state, stats: Stats) -> Image.Image:
     mem = state["mem"]
     swap = state["swap"]
     mem_y0 = cpu_y0 + cpu_h + gap
-    mx0, my0, mx1, my1 = dr.panel(content_x0, mem_y0, content_x1, mem_y0 + mem_h, "memória", GREEN)
+    mx0, my0, mx1, my1 = dr.panel(content_x0, mem_y0, content_x1, mem_y0 + mem_h, t("memory"), GREEN)
 
     mem_color = level_color(mem.percent)
     dr.text((mx0, my0), f"{mem.percent:.0f}%", FONTS["big"], mem_color, bold=True)
@@ -568,7 +600,7 @@ def render_portrait(state, stats: Stats) -> Image.Image:
         ("wired", getattr(mem, "wired", 0), YELLOW),
         ("active", mem.active, CYAN),
         ("inactive", mem.inactive, BLUE),
-        ("livre", mem.available, GREEN),
+        (t("free"), mem.available, GREEN),
     ]
     ly = bar_y + 40
     row_gap = max((my1 - ly) / len(lines), 1)
@@ -580,7 +612,7 @@ def render_portrait(state, stats: Stats) -> Image.Image:
 
     # --- Disco --------------------------------------------------------
     disk_y0 = mem_y0 + mem_h + gap
-    dx0, dy0, dx1, dy1 = dr.panel(content_x0, disk_y0, content_x1, disk_y0 + disk_h, "disco", ORANGE)
+    dx0, dy0, dx1, dy1 = dr.panel(content_x0, disk_y0, content_x1, disk_y0 + disk_h, t("disk"), ORANGE)
     disks = state["disks"][:2] or []
     row_gap = (dy1 - dy0) / max(len(disks), 1)
     yy = dy0
@@ -594,27 +626,27 @@ def render_portrait(state, stats: Stats) -> Image.Image:
 
     # --- Rede (empilhada: recebendo em cima, enviando embaixo) -----------
     net_y0 = disk_y0 + disk_h + gap
-    nx0, ny0, nx1, ny1 = dr.panel(content_x0, net_y0, content_x1, net_y0 + net_h, "rede", BLUE)
+    nx0, ny0, nx1, ny1 = dr.panel(content_x0, net_y0, content_x1, net_y0 + net_h, t("network"), BLUE)
     half_h = (ny1 - ny0 - gap) / 2
     max_net = max(list(stats.rx_hist) + list(stats.tx_hist) + [1024 * 200])
 
-    dr.text((nx0, ny0), "▼ recebendo", FONTS["tiny"], TEXT_DIM)
+    dr.text((nx0, ny0), t("download"), FONTS["tiny"], TEXT_DIM)
     dr.text((nx0, ny0 + 22), human_rate(state["rx_rate"]), FONTS["normal"], CYAN, bold=True)
     spark1_y = ny0 + 62
     dr.sparkline(nx0, spark1_y, nx1 - nx0, half_h - 62, list(stats.rx_hist), CYAN, max_val=max_net)
 
     tx_y0 = ny0 + half_h + gap
-    dr.text((nx0, tx_y0), "▲ enviando", FONTS["tiny"], TEXT_DIM)
+    dr.text((nx0, tx_y0), t("upload"), FONTS["tiny"], TEXT_DIM)
     dr.text((nx0, tx_y0 + 22), human_rate(state["tx_rate"]), FONTS["normal"], MAGENTA, bold=True)
     spark2_y = tx_y0 + 62
     dr.sparkline(nx0, spark2_y, nx1 - nx0, half_h - 62, list(stats.tx_hist), MAGENTA, max_val=max_net)
 
     # --- Processos (resto do espaço) ------------------------------------
-    px0, py0, px1, py1 = dr.panel(content_x0, proc_y0, content_x1, content_y1, "processos", MAGENTA)
+    px0, py0, px1, py1 = dr.panel(content_x0, proc_y0, content_x1, content_y1, t("processes"), MAGENTA)
     col_cpu, col_mem = px1 - 150, px1 - 65
     name_x = px0 + 56
     dr.text((px0, py0), "PID", FONTS["tiny"], TEXT_DIM)
-    dr.text((name_x, py0), "NOME", FONTS["tiny"], TEXT_DIM)
+    dr.text((name_x, py0), t("name"), FONTS["tiny"], TEXT_DIM)
     dr.text((col_cpu, py0), "CPU%", FONTS["tiny"], TEXT_DIM)
     dr.text((col_mem, py0), "MEM%", FONTS["tiny"], TEXT_DIM)
     row_h = 34
@@ -684,7 +716,11 @@ def main():
     ap.add_argument("--interval", type=float, default=60.0, help="segundos entre atualizações")
     ap.add_argument("--once", action="store_true", help="renderiza um único frame e sai (não define o wallpaper)")
     ap.add_argument("--portrait", action="store_true", help="com --once, renderiza o layout de monitor em retrato")
+    ap.add_argument("--lang", choices=sorted(STRINGS), default="en", help="idioma dos textos do dashboard")
     args = ap.parse_args()
+
+    global LANG
+    LANG = args.lang
 
     OUT_DIR.mkdir(exist_ok=True)
     stats = Stats()

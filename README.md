@@ -1,38 +1,40 @@
 # wallpaper_btop
 
-Gera um dashboard estilo **btop** (CPU, memória, disco, rede, processos) e
-define como papel de parede do macOS, atualizando em loop. Não é uma live
-wallpaper animada de verdade (o macOS não tem esse conceito nativo) — é uma
-imagem redesenhada e trocada periodicamente, o que na prática fica "vivo".
+English | **[Português](README.pt-br.md)**
 
-Detecta monitores em pé (retrato) automaticamente e usa um layout empilhado
-específico para eles — cada `desktop` do System Events recebe a imagem
-(paisagem 3840×2160 ou retrato 1080×1920) que combina com seu monitor físico,
-identificado por nome via `system_profiler`. Não depende de qual monitor é
-"o 2" — se os cabos forem reconectados em outra ordem, a detecção roda de
-novo a cada ciclo e se ajusta sozinha.
+Renders a **btop**-style dashboard (CPU, memory, disk, network, processes) and
+sets it as the macOS desktop wallpaper on a loop. It's not a real animated
+live wallpaper (macOS has no native concept of that) — it's an image that
+gets redrawn and swapped periodically, which in practice reads as "alive".
 
-## Estrutura
+Detects monitors standing in portrait automatically and uses a dedicated
+stacked layout for them — each System Events `desktop` gets the image
+(landscape 3840×2160 or portrait 1080×1920) that matches its physical
+monitor, identified by name via `system_profiler`. It doesn't depend on
+which monitor is "number 2" — if cables get reconnected in a different
+order, detection re-runs every cycle and adjusts itself.
+
+## Layout
 
 ```
 wallpaper_btop/
-├── btop_wallpaper.py                   # script principal (coleta stats, desenha, detecta monitores, troca o wallpaper)
-├── venv/                               # ambiente virtual Python (Pillow + psutil) — criado na instalação, não vem no repo
-├── local.wallpaperbtop.plist.template  # modelo do LaunchAgent (bin/start.sh gera o .plist real a partir daqui)
+├── btop_wallpaper.py                   # main script (collects stats, draws, detects monitors, sets the wallpaper)
+├── venv/                               # Python virtual env (Pillow + psutil) — created on install, not in the repo
+├── local.wallpaperbtop.plist.template  # LaunchAgent template (bin/start.sh generates the real .plist from this)
 ├── bin/
-│   ├── start.sh                 # liga agora + configura para iniciar sempre no login/reboot
-│   ├── stop.sh                  # para agora (volta a ligar sozinho no próximo login)
-│   ├── uninstall.sh             # para e remove o auto-start (não volta nem no reboot)
-│   └── clean_wallpaper_cache.sh # limpa o cache de wallpaper do macOS (rodar pelo Terminal.app, não daqui)
-├── output/                    # só o frame mais recente de cada orientação (frame_..._h.png / _v.png)
-└── logs/                      # stdout.log / stderr.log do processo em segundo plano
+│   ├── start.sh                 # starts now + configures auto-start on every login/reboot
+│   ├── stop.sh                  # stops now (comes back on next login by itself)
+│   ├── uninstall.sh             # stops and removes auto-start (won't come back, even on reboot)
+│   └── clean_wallpaper_cache.sh # clears macOS's own wallpaper cache (run from Terminal.app, not from here)
+├── output/                    # only the most recent frame per orientation (frame_..._h.png / _v.png)
+└── logs/                      # stdout.log / stderr.log for the background process
 ```
 
-## Instalar (do zero)
+## Install (from scratch)
 
-Requer macOS com Python 3 e o Xcode Command Line Tools (`xcode-select --install`,
-se ainda não tiver). Clone em qualquer pasta — os scripts descobrem o próprio
-caminho sozinhos, não precisa ser um lugar específico.
+Requires macOS with Python 3 and the Xcode Command Line Tools
+(`xcode-select --install`, if you don't have them yet). Clone anywhere —
+the scripts figure out their own location, no fixed path needed.
 
 ```bash
 git clone https://github.com/kemperalves/wallpaper_btop.git
@@ -41,87 +43,91 @@ python3 -m venv venv
 ./venv/bin/pip install Pillow psutil
 ```
 
-## Deixar sempre rodando (inclusive depois de reiniciar o Mac)
+## Keep it always running (including after a Mac restart)
 
 ```bash
 bin/start.sh
 ```
 
-Isso gera `~/Library/LaunchAgents/local.wallpaperbtop.plist` a partir do
-template (com o caminho de onde você clonou o projeto) e registra no
-`launchd`. A partir daí o processo:
+This generates `~/Library/LaunchAgents/local.wallpaperbtop.plist` from the
+template (with the path to wherever you cloned the project) and registers
+it with `launchd`. From then on the process:
 
-- inicia sozinho a cada login/boot (`RunAtLoad`);
-- é reiniciado automaticamente se cair (`KeepAlive`);
-- roda em baixa prioridade de CPU/IO, para não incomodar o resto do sistema.
+- starts by itself on every login/boot (`RunAtLoad`);
+- restarts automatically if it dies (`KeepAlive`);
+- runs at low CPU/IO priority, so it doesn't get in the way of anything else.
 
-Rodar `start.sh` de novo a qualquer momento (depois de editar o `.plist`,
-por exemplo) recarrega a configuração e reinicia o processo.
+Running `start.sh` again at any point (after editing the `.plist` template,
+for example) reloads the configuration and restarts the process.
 
-## Pausar temporariamente
+## Pause temporarily
 
 ```bash
 bin/stop.sh
 ```
 
-Para o processo agora. **Volta a ligar sozinho no próximo login/reboot**,
-porque o LaunchAgent continua instalado. O papel de parede fica parado no
-último frame gerado até você rodar `start.sh` de novo.
+Stops the process now. **Comes back by itself on the next login/reboot**,
+since the LaunchAgent stays installed. The wallpaper stays frozen on the
+last frame generated until you run `start.sh` again.
 
-## Desligar de vez (não volta nem no reboot)
+## Turn off for good (won't come back, even on reboot)
 
 ```bash
 bin/uninstall.sh
 ```
 
-Remove o LaunchAgent do login. Os arquivos do projeto continuam intactos —
-para reativar, é só rodar `bin/start.sh` novamente.
+Removes the LaunchAgent from login items. The project files are untouched —
+to reactivate, just run `bin/start.sh` again.
 
-## Testar manualmente (sem mexer no serviço)
+## Test manually (without touching the service)
 
-Gerar um único frame de teste, sem aplicar como wallpaper:
+Render a single test frame, without applying it as the wallpaper:
 
 ```bash
-./venv/bin/python3 btop_wallpaper.py --once             # layout paisagem
-./venv/bin/python3 btop_wallpaper.py --once --portrait  # layout retrato
+./venv/bin/python3 btop_wallpaper.py --once             # landscape layout
+./venv/bin/python3 btop_wallpaper.py --once --portrait  # portrait layout
 open output/preview.png
 ```
 
-Rodar em primeiro plano (aplica o wallpaper de verdade, mas só enquanto o
-terminal ficar aberto — Ctrl+C para parar):
+Run in the foreground (applies the wallpaper for real, but only while the
+terminal stays open — Ctrl+C to stop):
 
 ```bash
 ./venv/bin/python3 btop_wallpaper.py --interval 5
 ```
 
-## Configurações
+## Settings
 
-- **Intervalo de atualização**: edite `--interval 60` em
-  `local.wallpaperbtop.plist.template` e rode `bin/start.sh` de novo para aplicar.
-  Intervalos menores deixam mais "ao vivo", mas cada troca de wallpaper faz
-  o macOS guardar uma cópia no próprio cache dele (que só some rodando
-  `bin/clean_wallpaper_cache.sh` de vez em quando) — foi um intervalo baixo
-  demais (5s) rodando por horas que encheu o disco da primeira vez. 60s é o
-  equilíbrio atual; não baixe sem rodar o script de limpeza com frequência.
-- **Resolução**: constantes `WIDTH`/`HEIGHT` (paisagem) e
-  `PORTRAIT_WIDTH`/`PORTRAIT_HEIGHT` (retrato) no topo de `btop_wallpaper.py`.
-- **Monitores considerados em "retrato"**: qualquer desktop cuja resolução
-  detectada tenha altura maior que largura. Se a detecção falhar (ex.:
-  `system_profiler` indisponível), cai no comportamento antigo — mesma
-  imagem paisagem em todos os monitores.
+- **Update interval**: edit `--interval 60` in
+  `local.wallpaperbtop.plist.template` and run `bin/start.sh` again to apply.
+  Shorter intervals feel more "live", but every wallpaper change makes macOS
+  keep a copy in its own cache (which only goes away by running
+  `bin/clean_wallpaper_cache.sh` now and then) — an interval that was too
+  short (5s), running for hours, is what filled up the disk the first time.
+  60s is the current balance; don't go lower without running the cleanup
+  script regularly.
+- **Resolution**: `WIDTH`/`HEIGHT` (landscape) and
+  `PORTRAIT_WIDTH`/`PORTRAIT_HEIGHT` (portrait) constants at the top of
+  `btop_wallpaper.py`.
+- **Monitors considered "portrait"**: any desktop whose detected resolution
+  is taller than it is wide. If detection fails (e.g. `system_profiler`
+  unavailable), it falls back to the old behavior — the same landscape
+  image on every monitor.
+- **Dashboard text language**: `--lang en` (default) or `--lang pt-br`, in
+  `local.wallpaperbtop.plist.template`.
 
-## Logs / diagnóstico
+## Logs / diagnostics
 
 ```bash
 tail -f logs/stdout.log
 tail -f logs/stderr.log
 
-# status detalhado no launchd:
+# detailed launchd status:
 launchctl print gui/$(id -u)/local.wallpaperbtop
 ```
 
-## Voltar ao papel de parede antigo
+## Going back to your old wallpaper
 
-A qualquer momento, em **Ajustes do Sistema → Papel de parede**, é só
-escolher outra imagem — isso não interfere no serviço (ele volta a trocar
-no próximo ciclo, a menos que você rode `bin/stop.sh` ou `bin/uninstall.sh`).
+At any point, in **System Settings → Wallpaper**, just pick another image —
+that doesn't interfere with the service (it goes back to swapping it on the
+next cycle, unless you run `bin/stop.sh` or `bin/uninstall.sh`).
