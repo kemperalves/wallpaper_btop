@@ -25,6 +25,12 @@ PORTRAIT_WIDTH, PORTRAIT_HEIGHT = 1080, 1920
 OUT_DIR = Path(__file__).parent / "output"
 FONT_PATH = "/System/Library/Fonts/Menlo.ttc"
 
+# System Events fica instável às vezes (mais visto logo após o boot) e uma
+# chamada de osascript pode travar em vez de retornar um erro — sem prazo
+# aqui, uma trava dessas segurava o loop inteiro indefinidamente (foi o que
+# deixou dois monitores presos numa imagem de 11+ minutos atrás).
+OSASCRIPT_TIMEOUT = 10
+
 # Reserva nos cantos superiores para não ficar atrás de widgets do macOS
 # (pilha de widgets, ícones do Finder etc.). Ajuste se você reorganizar
 # os widgets/ícones da sua tela.
@@ -379,32 +385,29 @@ def get_desktop_displays():
     cruzando o nome do monitor (`display name of desktop N`) com a resolução
     real reportada pelo system_profiler — é assim que sabemos qual desktop
     está num monitor em pé (retrato) sem depender de índice fixo, já que a
-    ordem pode mudar se os cabos forem reconectados."""
+    ordem pode mudar se os cabos forem reconectados.
+
+    Uma chamada só pra todos os nomes (em vez de "count" + uma por desktop):
+    o System Events costuma ficar instável logo após o boot, e cada chamada
+    de osascript extra é mais uma chance de travar/atrasar o ciclo."""
+    names = {}
     try:
         r = subprocess.run(
-            ["osascript", "-e", 'tell application "System Events" to count of desktops'],
-            capture_output=True, text=True, timeout=10,
+            ["osascript", "-e", 'tell application "System Events" to get display name of every desktop'],
+            capture_output=True, text=True, timeout=OSASCRIPT_TIMEOUT,
         )
-        n = int(r.stdout.strip())
-    except (subprocess.SubprocessError, ValueError, OSError):
+        if r.returncode == 0 and r.stdout.strip():
+            names = {i + 1: name.strip() for i, name in enumerate(r.stdout.strip().split(", "))}
+    except (subprocess.SubprocessError, OSError):
+        pass
+    if not names:
         return {}
-
-    names = {}
-    for i in range(1, n + 1):
-        try:
-            r = subprocess.run(
-                ["osascript", "-e", f'tell application "System Events" to get display name of desktop {i}'],
-                capture_output=True, text=True, timeout=10,
-            )
-            if r.returncode == 0:
-                names[i] = r.stdout.strip()
-        except (subprocess.SubprocessError, OSError):
-            pass
+    n = max(names)
 
     res_by_name = {}
     try:
         r = subprocess.run(["system_profiler", "SPDisplaysDataType", "-json"],
-                            capture_output=True, text=True, timeout=10)
+                            capture_output=True, text=True, timeout=OSASCRIPT_TIMEOUT)
         data = json.loads(r.stdout)
         for gpu in data.get("SPDisplaysDataType", []):
             for disp in gpu.get("spdisplays_ndrvs", []):
@@ -415,9 +418,16 @@ def get_desktop_displays():
     except (subprocess.SubprocessError, ValueError, json.JSONDecodeError, OSError):
         pass
 
+    # Percorre 1..n (todo desktop que sabemos que existe), não só os que
+    # tiveram o nome resolvido — uma consulta de nome pode travar/falhar
+    # isoladamente (System Events instável), e se esse desktop simplesmente
+    # sumisse do resultado, o ciclo principal nem tentaria trocar o papel de
+    # parede dele. Sem nome/resolução, assume paisagem (o caso comum) em vez
+    # de deixar de atualizar.
     displays = {}
-    for i, name in names.items():
-        w, h = res_by_name.get(name, (None, None))
+    for i in range(1, n + 1):
+        name = names.get(i)
+        w, h = res_by_name.get(name, (None, None)) if name else (None, None)
         displays[i] = {"name": name, "width": w, "height": h, "portrait": bool(w and h and h > w)}
     return displays
 
@@ -797,7 +807,11 @@ prune_wallpaper_agent_cache.has_access = None
 
 def _run_set_picture(target: str, path: Path) -> bool:
     script = f'tell application "System Events" to tell {target} to set picture to (POSIX file "{path}")'
-    r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+    try:
+        r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=OSASCRIPT_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        print(f"aviso: osascript travou (>{OSASCRIPT_TIMEOUT}s) ao definir o wallpaper ({target})", file=sys.stderr)
+        return False
     if r.returncode != 0:
         print(f"aviso: osascript falhou ao definir o wallpaper ({target}): {r.stderr.strip()}", file=sys.stderr)
     return r.returncode == 0
@@ -809,6 +823,26 @@ def set_wallpaper_all(path: Path) -> bool:
 
 def set_wallpaper_desktop(index: int, path: Path) -> bool:
     return _run_set_picture(f"desktop {index}", path)
+
+
+def verify_and_fix_desktops(intended: dict) -> None:
+    """`set picture` pode retornar sucesso sem a troca realmente pegar —
+    visto na prática mesmo com o System Events respondendo normal. Confere
+    todos de uma vez (1 chamada, não uma por desktop) e tenta de novo só
+    quem não bateu."""
+    try:
+        r = subprocess.run(
+            ["osascript", "-e", 'tell application "System Events" to get picture of every desktop'],
+            capture_output=True, text=True, timeout=OSASCRIPT_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        return
+    if r.returncode != 0:
+        return
+    actual = [p.strip() for p in r.stdout.strip().split(", ")]
+    for i, expected in intended.items():
+        if i - 1 >= len(actual) or actual[i - 1] != str(expected):
+            set_wallpaper_desktop(i, expected)
 
 
 def main():
@@ -844,18 +878,36 @@ def main():
     for stale in OUT_DIR.glob("frame_*.png"):
         stale.unlink(missing_ok=True)
 
+    # O System Events já travou de vez em quando (visto após reconectar
+    # monitores ou mexer em permissões): toda chamada de osascript passa a
+    # levar o timeout inteiro sem completar. Um "killall" resolve na hora —
+    # o macOS relança o processo sozinho, sem perder nada — mas só depois de
+    # falhar vários ciclos seguidos, pra não reagir a um soluço passageiro.
+    consecutive_failures = 0
+    STUCK_THRESHOLD = 3
+
     print(f"wallpaper_btop rodando, atualizando a cada {args.interval}s. Ctrl+C para parar.")
     try:
         while True:
             state = stats.sample()
 
             displays = get_desktop_displays()
+            if displays:
+                consecutive_failures = 0
+            else:
+                consecutive_failures += 1
+                if consecutive_failures >= STUCK_THRESHOLD:
+                    print(f"aviso: System Events sem responder por {consecutive_failures} ciclos — reiniciando", file=sys.stderr)
+                    subprocess.run(["killall", "System Events"], capture_output=True)
+                    consecutive_failures = 0
+
             portrait_idxs = [i for i, d in displays.items() if d["portrait"]]
             landscape_idxs = [i for i in displays if i not in portrait_idxs]
 
             landscape_path = OUT_DIR / f"frame_{int(time.time() * 1000)}_h.png"
             render(state, stats).save(landscape_path)
 
+            intended = {}
             if displays and portrait_idxs:
                 # Alguns monitores estão de pé: cada grupo (retrato/paisagem)
                 # recebe sua própria imagem, endereçando o desktop certo.
@@ -863,17 +915,23 @@ def main():
                 render_portrait(state, stats).save(portrait_path)
                 for i in portrait_idxs:
                     set_wallpaper_desktop(i, portrait_path)
+                    intended[i] = portrait_path
                 for i in landscape_idxs:
                     set_wallpaper_desktop(i, landscape_path)
+                    intended[i] = landscape_path
                 if prev_portrait is not None:
                     prev_portrait.unlink(missing_ok=True)
                 prev_portrait = portrait_path
             else:
                 # Detecção falhou ou é tudo paisagem: comportamento simples de antes.
                 set_wallpaper_all(landscape_path)
+                intended = {i: landscape_path for i in displays}
                 if prev_portrait is not None:
                     prev_portrait.unlink(missing_ok=True)
                     prev_portrait = None
+
+            if intended:
+                verify_and_fix_desktops(intended)
 
             if prev_landscape is not None:
                 prev_landscape.unlink(missing_ok=True)
