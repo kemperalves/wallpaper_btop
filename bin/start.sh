@@ -17,3 +17,21 @@ if ! launchctl bootstrap "gui/$UID_N" "$PLIST_DST" 2>/dev/null; then
 fi
 
 echo "wallpaper_btop rodando e configurado para iniciar automaticamente no login."
+
+# "Acesso Total ao Disco" não tem prompt clicável — só dá pra conceder pelos
+# Ajustes, manualmente. Isso não afeta o wallpaper em si (que já está
+# rodando acima); só a limpeza automática do cache de wallpaper do macOS
+# fica desativada até você conceder. Avisa e facilita, sem forçar nada.
+CACHE_DIR="$HOME/Library/Containers/com.apple.wallpaper.agent/Data/Library/Caches/com.apple.wallpaper.caches/extension-com.apple.wallpaper.extension.image"
+if find "$CACHE_DIR" -maxdepth 1 2>&1 | grep -qi "not permitted"; then
+    PYTHON_REAL="$(realpath "$DIR/venv/bin/python3" 2>/dev/null)"
+    echo ""
+    echo "Aviso: sem \"Acesso Total ao Disco\", o cache de wallpaper do macOS não é limpo sozinho (o resto funciona normalmente)."
+    if [ -n "$PYTHON_REAL" ]; then
+        echo "$PYTHON_REAL" | pbcopy 2>/dev/null && \
+            echo "Pra ativar: Ajustes > Privacidade e Segurança > Acesso Total ao Disco > + > Cmd+Shift+G > colar (já copiado):" || \
+            echo "Pra ativar: Ajustes > Privacidade e Segurança > Acesso Total ao Disco > + > Cmd+Shift+G > colar:"
+        echo "  $PYTHON_REAL"
+    fi
+    echo "Ou rode: open \"x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles\""
+fi
