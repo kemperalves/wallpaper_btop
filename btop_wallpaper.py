@@ -9,6 +9,7 @@ import os
 import platform
 import plistlib
 import re
+import resource
 import socket
 import subprocess
 import sys
@@ -79,6 +80,20 @@ LANG = "en"
 
 def t(key):
     return STRINGS[LANG][key]
+
+
+def detect_system_lang():
+    """Usado quando --lang não é passado: lê o idioma do macOS (Ajustes >
+    Geral > Idioma e Região) e cai em português só se o idioma configurado
+    for português — qualquer outro vira inglês, já que são as duas únicas
+    traduções que existem. Repare que é o IDIOMA, não a região: um Mac en_BR
+    (inglês, região Brasil) conta como inglês."""
+    try:
+        r = subprocess.run(["defaults", "read", "-g", "AppleLocale"], capture_output=True, text=True, timeout=5)
+        lang_code = r.stdout.strip().split("_")[0].split("-")[0].lower()
+        return "pt-br" if lang_code == "pt" else "en"
+    except (subprocess.SubprocessError, OSError):
+        return "en"
 
 
 def load_font(size):
@@ -203,10 +218,53 @@ class Stats:
         self._boot = datetime.fromtimestamp(psutil.boot_time())
         self._net_start = self._last_net
         psutil.cpu_percent(percpu=True)  # prime
+        self._own_process = psutil.Process(os.getpid())
+        self._own_process.cpu_percent(None)  # prime
+        self._last_children_rusage = resource.getrusage(resource.RUSAGE_CHILDREN)
+        self._last_children_t = time.monotonic()
+
+    def _own_tree_cpu_pct(self):
+        """Quanto do CPU (na escala "100 = 1 núcleo") foi gasto por nós mesmos
+        desde a última leitura: o processo principal (psutil) + a soma de
+        toda a árvore de subprocessos que já rodou e terminou nesse meio-tempo
+        (system_profiler, osascript, diskutil — via RUSAGE_CHILDREN, que
+        acumula recursivamente contanto que cada processo espere pelos
+        próprios filhos, que é o caso do subprocess.run)."""
+        own_pct = self._own_process.cpu_percent(None)
+
+        now_t = time.monotonic()
+        children_now = resource.getrusage(resource.RUSAGE_CHILDREN)
+        children_dt = (children_now.ru_utime + children_now.ru_stime) - (
+            self._last_children_rusage.ru_utime + self._last_children_rusage.ru_stime
+        )
+        elapsed = max(now_t - self._last_children_t, 0.001)
+        self._last_children_rusage = children_now
+        self._last_children_t = now_t
+
+        return own_pct + 100 * children_dt / elapsed
 
     def sample(self):
-        cpu_total = psutil.cpu_percent(percpu=False)
-        cpu_per_core = psutil.cpu_percent(percpu=True)
+        cpu_total_raw = psutil.cpu_percent(percpu=False)
+        cpu_per_core_raw = psutil.cpu_percent(percpu=True)
+
+        # Sem isso, gerar a própria imagem (desenhar em 4K, chamar
+        # system_profiler/osascript/diskutil) aparece no dashboard como se
+        # fosse carga "do sistema" — no fundo é só o próprio dashboard se
+        # medindo. Descontamos nosso consumo do total e distribuímos esse
+        # desconto entre os núcleos ativos, proporcional ao uso de cada um
+        # (não dá pra saber em qual núcleo específico rodamos, mas isso
+        # aproxima bem e mantém o total sempre igual à soma das barras).
+        nonzero_sum = sum(c for c in cpu_per_core_raw if c > 0)
+        to_subtract = min(self._own_tree_cpu_pct(), nonzero_sum)
+        if nonzero_sum > 0:
+            cpu_per_core = [
+                max(0.0, c - to_subtract * (c / nonzero_sum)) if c > 0 else 0.0
+                for c in cpu_per_core_raw
+            ]
+        else:
+            cpu_per_core = cpu_per_core_raw
+        cpu_total = sum(cpu_per_core) / len(cpu_per_core) if cpu_per_core else cpu_total_raw
+
         mem = psutil.virtual_memory()
         swap = psutil.swap_memory()
 
@@ -716,11 +774,12 @@ def main():
     ap.add_argument("--interval", type=float, default=60.0, help="segundos entre atualizações")
     ap.add_argument("--once", action="store_true", help="renderiza um único frame e sai (não define o wallpaper)")
     ap.add_argument("--portrait", action="store_true", help="com --once, renderiza o layout de monitor em retrato")
-    ap.add_argument("--lang", choices=sorted(STRINGS), default="en", help="idioma dos textos do dashboard")
+    ap.add_argument("--lang", choices=sorted(STRINGS), default=None,
+                     help="idioma dos textos do dashboard (padrão: detecta pelo idioma do macOS)")
     args = ap.parse_args()
 
     global LANG
-    LANG = args.lang
+    LANG = args.lang or detect_system_lang()
 
     OUT_DIR.mkdir(exist_ok=True)
     stats = Stats()
