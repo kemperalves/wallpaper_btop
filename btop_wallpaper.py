@@ -767,18 +767,32 @@ def prune_wallpaper_agent_cache(keep_seconds):
     # Best-effort: sem "Acesso Total ao Disco" concedido ao Python, o macOS
     # nega acesso ao container de outro processo (PermissionError) — nesse
     # caso simplesmente desistimos nesta rodada em vez de derrubar o loop.
+    # Loga só na primeira vez que o status muda (falha->ok ou ok->falha),
+    # pra dar visibilidade sem poluir o log a cada ciclo.
     try:
         if not WALLPAPER_AGENT_CACHE.is_dir():
             return
         cutoff = time.time() - keep_seconds
+        removed = 0
         for f in WALLPAPER_AGENT_CACHE.iterdir():
             try:
                 if f.is_file() and f.stat().st_mtime < cutoff:
                     f.unlink()
+                    removed += 1
             except OSError:
                 pass
-    except OSError:
-        pass
+        if not prune_wallpaper_agent_cache.has_access:
+            print("prune_wallpaper_agent_cache: acesso liberado, limpeza automática ativa", file=sys.stderr)
+            prune_wallpaper_agent_cache.has_access = True
+        if removed:
+            print(f"prune_wallpaper_agent_cache: {removed} arquivo(s) removido(s)", file=sys.stderr)
+    except OSError as e:
+        if prune_wallpaper_agent_cache.has_access is not False:
+            print(f"prune_wallpaper_agent_cache: sem acesso ({e})", file=sys.stderr)
+            prune_wallpaper_agent_cache.has_access = False
+
+
+prune_wallpaper_agent_cache.has_access = None
 
 
 def _run_set_picture(target: str, path: Path) -> bool:
