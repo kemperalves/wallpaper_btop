@@ -49,6 +49,11 @@ MAGENTA = (115, 94, 115)
 
 HISTORY_LEN = 90
 
+# Processos do sistema que só gastam CPU de verdade por nossa causa — o
+# macOS processa o novo wallpaper toda vez que trocamos a imagem. Ficam de
+# fora da lista de processos e do total de CPU (ver Stats._track_processes).
+EXCLUDED_PROCESS_NAMES = {"WallpaperImageExtension"}
+
 STRINGS = {
     "en": {
         "weekdays": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
@@ -213,6 +218,7 @@ class Stats:
         self.rx_hist = collections.deque(maxlen=HISTORY_LEN)
         self.tx_hist = collections.deque(maxlen=HISTORY_LEN)
         self._procs = {}
+        self._excluded_procs = {}
         self._last_net = psutil.net_io_counters()
         self._last_net_t = time.monotonic()
         self._boot = datetime.fromtimestamp(psutil.boot_time())
@@ -243,19 +249,54 @@ class Stats:
 
         return own_pct + 100 * children_dt / elapsed
 
+    def _track_processes(self):
+        """Descobre PIDs novos e separa os que ficam de fora da lista/da conta
+        de CPU (EXCLUDED_PROCESS_NAMES) dos demais. São processos do sistema
+        de vida longa (PPID 1) que só gastam CPU de verdade quando trocamos o
+        wallpaper — não são filhos nossos, então RUSAGE_CHILDREN não os vê;
+        têm que ser pegos pelo nome mesmo."""
+        live_pids = set(psutil.pids()) - {os.getpid()}
+        for pid in list(self._procs):
+            if pid not in live_pids:
+                del self._procs[pid]
+        for pid in list(self._excluded_procs):
+            if pid not in live_pids:
+                del self._excluded_procs[pid]
+
+        for pid in live_pids:
+            if pid in self._procs or pid in self._excluded_procs:
+                continue
+            try:
+                p = psutil.Process(pid)
+                p.cpu_percent(None)
+                (self._excluded_procs if p.name() in EXCLUDED_PROCESS_NAMES else self._procs)[pid] = p
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+
+    def _excluded_cpu_pct(self):
+        total = 0.0
+        for p in list(self._excluded_procs.values()):
+            try:
+                total += p.cpu_percent(None)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+        return total
+
     def sample(self):
         cpu_total_raw = psutil.cpu_percent(percpu=False)
         cpu_per_core_raw = psutil.cpu_percent(percpu=True)
+        self._track_processes()
 
         # Sem isso, gerar a própria imagem (desenhar em 4K, chamar
-        # system_profiler/osascript/diskutil) aparece no dashboard como se
+        # system_profiler/osascript/diskutil, e os processos do próprio
+        # macOS que processam o wallpaper novo) aparece no dashboard como se
         # fosse carga "do sistema" — no fundo é só o próprio dashboard se
         # medindo. Descontamos nosso consumo do total e distribuímos esse
         # desconto entre os núcleos ativos, proporcional ao uso de cada um
         # (não dá pra saber em qual núcleo específico rodamos, mas isso
         # aproxima bem e mantém o total sempre igual à soma das barras).
         nonzero_sum = sum(c for c in cpu_per_core_raw if c > 0)
-        to_subtract = min(self._own_tree_cpu_pct(), nonzero_sum)
+        to_subtract = min(self._own_tree_cpu_pct() + self._excluded_cpu_pct(), nonzero_sum)
         if nonzero_sum > 0:
             cpu_per_core = [
                 max(0.0, c - to_subtract * (c / nonzero_sum)) if c > 0 else 0.0
@@ -275,19 +316,6 @@ class Stats:
         tx_rate = (now_net.bytes_sent - self._last_net.bytes_sent) / dt
         self._last_net = now_net
         self._last_net_t = now_t
-
-        live_pids = set(psutil.pids()) - {os.getpid()}
-        for pid in list(self._procs):
-            if pid not in live_pids:
-                del self._procs[pid]
-        for pid in live_pids:
-            if pid not in self._procs:
-                try:
-                    p = psutil.Process(pid)
-                    p.cpu_percent(None)
-                    self._procs[pid] = p
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    pass
 
         procs = []
         for p in self._procs.values():
