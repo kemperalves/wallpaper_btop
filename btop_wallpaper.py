@@ -799,7 +799,7 @@ def set_wallpaper_desktop(index: int, path: Path) -> bool:
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--interval", type=float, default=60.0, help="segundos entre atualizações")
+    ap.add_argument("--interval", type=float, default=5.0, help="segundos entre atualizações")
     ap.add_argument("--once", action="store_true", help="renderiza um único frame e sai (não define o wallpaper)")
     ap.add_argument("--portrait", action="store_true", help="com --once, renderiza o layout de monitor em retrato")
     ap.add_argument("--lang", choices=sorted(STRINGS), default=None,

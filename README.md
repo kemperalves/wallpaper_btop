@@ -98,14 +98,16 @@ terminal stays open — Ctrl+C to stop):
 
 ## Settings
 
-- **Update interval**: edit `--interval 60` in
+- **Update interval**: edit `--interval 5` in
   `local.wallpaperbtop.plist.template` and run `bin/start.sh` again to apply.
-  Shorter intervals feel more "live", but every wallpaper change makes macOS
-  keep a copy in its own cache (which only goes away by running
-  `bin/clean_wallpaper_cache.sh` now and then) — an interval that was too
-  short (5s), running for hours, is what filled up the disk the first time.
-  60s is the current balance; don't go lower without running the cleanup
-  script regularly.
+  Every wallpaper change makes macOS keep a copy in its own cache that it
+  never cleans up on its own (~25MB per change) — at the 5s default that's
+  roughly 300MB/minute, ~18GB/hour (double that if you have a portrait
+  monitor, since it renders a second image every cycle). Left running
+  unattended, that's exactly what filled up the disk the first time. **Run
+  `bin/clean_wallpaper_cache.sh` from Terminal.app regularly** if you keep
+  this default — or raise the interval (60s+ is far gentler on that cache)
+  if you'd rather not think about it.
 - **Resolution**: `WIDTH`/`HEIGHT` (landscape) and
   `PORTRAIT_WIDTH`/`PORTRAIT_HEIGHT` (portrait) constants at the top of
   `btop_wallpaper.py`.

@@ -98,13 +98,16 @@ terminal ficar aberto — Ctrl+C para parar):
 
 ## Configurações
 
-- **Intervalo de atualização**: edite `--interval 60` em
+- **Intervalo de atualização**: edite `--interval 5` em
   `local.wallpaperbtop.plist.template` e rode `bin/start.sh` de novo para aplicar.
-  Intervalos menores deixam mais "ao vivo", mas cada troca de wallpaper faz
-  o macOS guardar uma cópia no próprio cache dele (que só some rodando
-  `bin/clean_wallpaper_cache.sh` de vez em quando) — foi um intervalo baixo
-  demais (5s) rodando por horas que encheu o disco da primeira vez. 60s é o
-  equilíbrio atual; não baixe sem rodar o script de limpeza com frequência.
+  Cada troca de wallpaper faz o macOS guardar uma cópia no próprio cache
+  dele, que nunca limpa sozinho (~25MB por troca) — no padrão de 5s isso é
+  ±300MB/minuto, ~18GB/hora (o dobro se você tiver um monitor em retrato,
+  já que aí é uma segunda imagem por ciclo). Foi exatamente isso, rodando
+  sem supervisão por horas, que encheu o disco da primeira vez. **Rode
+  `bin/clean_wallpaper_cache.sh` pelo Terminal.app com frequência** se
+  manter esse padrão — ou aumente o intervalo (60s+ é bem mais tranquilo
+  pra esse cache) se preferir não se preocupar com isso.
 - **Resolução**: constantes `WIDTH`/`HEIGHT` (paisagem) e
   `PORTRAIT_WIDTH`/`PORTRAIT_HEIGHT` (retrato) no topo de `btop_wallpaper.py`.
 - **Monitores considerados em "retrato"**: qualquer desktop cuja resolução

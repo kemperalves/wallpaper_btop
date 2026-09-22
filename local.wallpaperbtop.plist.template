@@ -9,9 +9,7 @@
 		<string>__DIR__/venv/bin/python3</string>
 		<string>__DIR__/btop_wallpaper.py</string>
 		<string>--interval</string>
-		<string>60</string>
-		<string>--lang</string>
-		<string>en</string>
+		<string>5</string>
 	</array>
 	<key>WorkingDirectory</key>
 	<string>__DIR__</string>
